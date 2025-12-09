@@ -31,7 +31,7 @@ export class SheetsService {
         logToFile(`[SheetsService] Starting getText for spreadsheet: ${spreadsheetId} with format: ${format}`);
         try {
             const id = extractDocId(spreadsheetId) || spreadsheetId;
-            
+
             const sheets = await this.getSheetsClient();
             // Get spreadsheet metadata
             const spreadsheet = await sheets.spreadsheets.get({
@@ -41,7 +41,7 @@ export class SheetsService {
 
             let content = '';
             const jsonData: Record<string, any[][]> = {};
-            
+
             // Add spreadsheet title (except for JSON format)
             if (spreadsheet.data.properties?.title && format !== 'json') {
                 content += `Spreadsheet Title: ${spreadsheet.data.properties.title}\n\n`;
@@ -49,11 +49,11 @@ export class SheetsService {
 
             // Get all sheet names
             const sheetNames = spreadsheet.data.sheets?.map(sheet => sheet.properties?.title) || [];
-            
+
             // Get data from all sheets
             for (const sheetName of sheetNames) {
                 if (!sheetName) continue;
-                
+
                 try {
                     const response = await sheets.spreadsheets.values.get({
                         spreadsheetId: id,
@@ -61,14 +61,14 @@ export class SheetsService {
                     });
 
                     const values = response.data.values || [];
-                    
+
                     if (format === 'json') {
                         // Collect data for JSON structure
                         jsonData[sheetName] = values;
                     } else {
                         // Add sheet name as context
                         content += `Sheet Name: ${sheetName}\n`;
-                        
+
                         if (values.length === 0) {
                             content += '(Empty sheet)\n';
                         } else {
@@ -103,7 +103,7 @@ export class SheetsService {
                     }
                 }
             }
-            
+
             if (format === 'json') {
                 // Generate clean JSON output from collected data
                 content = JSON.stringify(jsonData, null, 2);
@@ -132,7 +132,7 @@ export class SheetsService {
         logToFile(`[SheetsService] Starting getRange for spreadsheet: ${spreadsheetId}, range: ${range}`);
         try {
             const id = extractDocId(spreadsheetId) || spreadsheetId;
-            
+
             const sheets = await this.getSheetsClient();
             const response = await sheets.spreadsheets.values.get({
                 spreadsheetId: id,
@@ -140,7 +140,7 @@ export class SheetsService {
             });
 
             const values = response.data.values || [];
-            
+
             logToFile(`[SheetsService] Finished getRange for spreadsheet: ${id}`);
             return {
                 content: [{
@@ -181,7 +181,7 @@ export class SheetsService {
             const nextPageToken = res.data.nextPageToken;
 
             logToFile(`[SheetsService] Found ${files.length} spreadsheets.`);
-            
+
             return {
                 content: [{
                     type: "text" as const,
@@ -207,7 +207,7 @@ export class SheetsService {
         logToFile(`[SheetsService] Starting getMetadata for spreadsheet: ${spreadsheetId}`);
         try {
             const id = extractDocId(spreadsheetId) || spreadsheetId;
-            
+
             const sheets = await this.getSheetsClient();
             const spreadsheet = await sheets.spreadsheets.get({
                 spreadsheetId: id,
@@ -238,6 +238,100 @@ export class SheetsService {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             logToFile(`[SheetsService] Error during sheets.getMetadata: ${errorMessage}`);
+            return {
+                content: [{
+                    type: "text" as const,
+                    text: JSON.stringify({ error: errorMessage })
+                }]
+            };
+        }
+    }
+
+    public pasteCSVData = async ({ spreadsheetId, csvData, title, startRow = 0, startColumn = 0 }: {
+        spreadsheetId: string,
+        csvData: string,
+        title: string,
+        startRow?: number,
+        startColumn?: number
+    }) => {
+        logToFile(`[SheetsService] Starting pasteCSVData for spreadsheet: ${spreadsheetId}, sheet: ${title}`);
+        try {
+            const id = extractDocId(spreadsheetId) || spreadsheetId;
+            const sheets = await this.getSheetsClient();
+
+            // 1. Check if sheet exists
+            const spreadsheet = await sheets.spreadsheets.get({
+                spreadsheetId: id,
+                includeGridData: false,
+            });
+
+            const existingSheet = spreadsheet.data.sheets?.find(
+                (s: sheets_v4.Schema$Sheet) => s.properties?.title === title
+            );
+
+            let targetSheetId: number;
+            const requests: sheets_v4.Schema$Request[] = [];
+
+            if (existingSheet) {
+                // Sheet exists, use its ID
+                logToFile(`[SheetsService] Sheet "${title}" exists (ID: ${existingSheet.properties?.sheetId})`);
+                targetSheetId = existingSheet.properties?.sheetId || 0;
+            } else {
+                // Sheet doesn't exist, create it
+                // Generate a random ID to avoid collisions (though unlikely with one user)
+                // Range is safe for 32-bit integer
+                targetSheetId = Math.floor(Math.random() * 2147483647);
+                logToFile(`[SheetsService] Creating new sheet "${title}" with ID: ${targetSheetId}`);
+
+                requests.push({
+                    addSheet: {
+                        properties: {
+                            title: title,
+                            sheetId: targetSheetId
+                        }
+                    }
+                });
+            }
+
+            // 2. Add pasteData request
+            requests.push({
+                pasteData: {
+                    coordinate: {
+                        sheetId: targetSheetId,
+                        rowIndex: startRow,
+                        columnIndex: startColumn
+                    },
+                    data: csvData,
+                    type: "PASTE_NORMAL",
+                    delimiter: ","
+                }
+            });
+
+            // 3. Execute batchUpdate
+            await sheets.spreadsheets.batchUpdate({
+                spreadsheetId: id,
+                requestBody: {
+                    requests: requests
+                }
+            });
+
+            logToFile(`[SheetsService] Finished pasteCSVData for spreadsheet: ${id}`);
+            return {
+                content: [{
+                    type: "text" as const,
+                    text: JSON.stringify({
+                        status: "success",
+                        message: existingSheet
+                            ? `Updated existing sheet "${title}"`
+                            : `Created new sheet "${title}" and populated with data`,
+                        sheetId: targetSheetId
+                    })
+                }]
+            };
+
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logToFile(`[SheetsService] Error during sheets.pasteCSVData: ${errorMessage}`);
             return {
                 content: [{
                     type: "text" as const,

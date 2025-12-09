@@ -318,6 +318,21 @@ async function main() {
     );
 
     server.registerTool(
+        "sheets.pasteCsvData",
+        {
+            description: 'Inserts or updates a sheet with data from a CSV string. If the sheet exists, it pastes data into it. If not, it creates the sheet first.',
+            inputSchema: {
+                spreadsheetId: z.string().describe('The ID or URL of the spreadsheet.'),
+                csvData: z.string().describe('The raw CSV data to paste.'),
+                title: z.string().describe('The title of the sheet (tab) to insert data into.'),
+                startRow: z.number().optional().describe('The starting row index (0-based) for pasting data. Default: 0.'),
+                startColumn: z.number().optional().describe('The starting column index (0-based) for pasting data. Default: 0.'),
+            }
+        },
+        sheetsService.pasteCSVData
+    );
+
+    server.registerTool(
         "drive.search",
         {
             description: 'Searches for files and folders in Google Drive. The query can be a simple search term, a Google Drive URL, or a full query string. For more information on query strings see: https://developers.google.com/drive/api/guides/search-files',
@@ -532,15 +547,15 @@ async function main() {
     );
 
     server.registerTool(
-      'chat.setUpSpace',
-      {
-        description: 'Sets up a new Google Chat space with a display name and a list of members.',
-        inputSchema: {
-            displayName: z.string().describe('The display name of the space.'),
-            userNames: z.array(z.string()).describe('The user names of the members to add to the space (e.g. users/12345678)'),
-        }
-      },
-      chatService.setUpSpace
+        'chat.setUpSpace',
+        {
+            description: 'Sets up a new Google Chat space with a display name and a list of members.',
+            inputSchema: {
+                displayName: z.string().describe('The display name of the space.'),
+                userNames: z.array(z.string()).describe('The user names of the members to add to the space (e.g. users/12345678)'),
+            }
+        },
+        chatService.setUpSpace
     );
 
 
@@ -686,7 +701,7 @@ There are a list of system labels that can be modified on a message:
     // 4. Connect the transport layer and start listening
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    
+
     console.error("Google Workspace MCP Server is running (registerTool). Listening for requests...");
 }
 
